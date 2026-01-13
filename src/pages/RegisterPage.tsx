@@ -33,6 +33,18 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) => {
       });
       if (error) throw error;
       if (data.user) {
+        // Manually update profile with email to allow "Login by Username" lookup later
+        // Note: This relies on the table having an 'email' column or JSONB. 
+        // We will try to update it, ignoring errors if column doesn't exist yet (soft fail).
+        try {
+          await supabase.from('profiles').update({
+            // @ts-ignore: email column might not exist in types yet
+            email: email
+          }).eq('id', data.user.id);
+        } catch (err) {
+          console.warn("Could not save email to profile (column might be missing)", err);
+        }
+
         setSuccess('Registrasi berhasil! Silakan periksa email Anda untuk verifikasi akun.');
       }
     } catch (error: any) {

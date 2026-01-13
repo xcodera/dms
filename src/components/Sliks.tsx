@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   ChevronLeft, Camera, Upload, X, RefreshCw, Copy, Check, Scissors, Search, History,
-  Database, RotateCw, AlertTriangle
+  Database, RotateCw, AlertTriangle, CheckCircle2
 } from 'lucide-react';
 import { AppView, KtpData, SliksKtp } from '../types';
 import { GoogleGenAI, Type } from "@google/genai";
@@ -88,37 +88,59 @@ const Sliks: React.FC<SliksProps> = ({ isDarkMode, setActiveView }) => {
     setStep('processing');
     setShowJsonResult(false);
     try {
-      // FIX: Use environment variable for API key.
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const apiKey = import.meta.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey === 'PLACEHOLDER_API_KEY') {
+        throw new Error("API Key belum disetting. Harap masukkan GEMINI_API_KEY di Vercel.");
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
       const base64Data = imageData.split(',')[1];
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        // FIX: Corrected `contents` structure for a single multi-part request.
-        contents: { parts: [{ text: "Ekstrak data dari KTP Indonesia ini dan deteksi koordinat kartu KTP. Kembalikan JSON dengan urutan field: nik, nama, tempat_tgl_lahir, jenis_kelamin, alamat, rt_rw, kel_desa, kecamatan, agama, status_perkawinan, pekerjaan, kewarganegaraan, berlaku_hingga. Tambahkan field 'card_box' berisi array [ymin, xmin, ymax, xmax] yang mendeteksi batas kartu KTP dalam koordinat ternormalisasi (0-1000). Kembalikan HANYA JSON." }, { inlineData: { mimeType: "image/jpeg", data: base64Data } }] },
-        config: { responseMimeType: "application/json", responseSchema: { type: Type.OBJECT, properties: { nik: { type: Type.STRING }, nama: { type: Type.STRING }, tempat_tgl_lahir: { type: Type.STRING }, jenis_kelamin: { type: Type.STRING }, alamat: { type: Type.STRING }, rt_rw: { type: Type.STRING }, kel_desa: { type: Type.STRING }, kecamatan: { type: Type.STRING }, agama: { type: Type.STRING }, status_perkawinan: { type: Type.STRING }, pekerjaan: { type: Type.STRING }, kewarganegaraan: { type: Type.STRING }, berlaku_hingga: { type: Type.STRING }, card_box: { type: Type.ARRAY, items: { type: Type.NUMBER } } }, required: ["nik", "nama", "card_box"] } }
+        model: 'gemini-1.5-flash',
+        contents: {
+          role: 'user',
+          parts: [
+            { text: "Ekstrak data dari KTP Indonesia ini. Kembalikan JSON dengan field: nik, nama, tempat_tgl_lahir, jenis_kelamin, alamat, rt_rw, kel_desa, kecamatan, agama, status_perkawinan, pekerjaan, kewarganegaraan, berlaku_hingga. Tambahkan 'card_box' [ymin, xmin, ymax, xmax] (0-1000) untuk crop KTP. Pastikan output HANYA JSON valid tanpa markdown." },
+            { inlineData: { mimeType: "image/jpeg", data: base64Data } }
+          ]
+        },
+        config: { responseMimeType: "application/json" }
       });
-      const result = JSON.parse(response.text) as KtpData;
+
+      const resultText = response.text;
+      const result = JSON.parse(resultText) as KtpData;
       setKtpData(result);
+
       if (result.card_box) {
-        const cropped = await cropImage(imageData, result.card_box);
-        setCroppedImage(cropped);
-      } else { setCroppedImage(imageData); }
+        try {
+          const cropped = await cropImage(imageData, result.card_box);
+          setCroppedImage(cropped);
+        } catch (e) {
+          setCroppedImage(imageData);
+        }
+      } else {
+        setCroppedImage(imageData);
+      }
+
       setStep('review');
-    } catch (err) {
-      // FIX: Updated error message to remove mention of API key.
-      setError("Gagal mengekstrak data. Pastikan gambar jelas dan coba lagi.");
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Gagal mengekstrak data. Pastikan gambar KTP jelas.");
       setStep('summary');
     }
   };
 
   const finalizeVerification = async () => {
     if (!ktpData || !user) return;
-    const [tempat_lahir, tglLahirStr] = ktpData.tempat_tgl_lahir.split(',').map(s => s.trim());
-    const dateParts = tglLahirStr?.match(/(\d{2})-(\d{2})-(\d{4})/);
-    let tanggal_lahir: string | undefined = undefined;
-    if (dateParts) {
-      const [, day, month, year] = dateParts;
-      tanggal_lahir = `${year}-${month}-${day}`;
+    const [tempat_lahir, tglLahirStr] = ktpData.tempat_tgl_lahir ? ktpData.tempat_tgl_lahir.split(',').map(s => s.trim()) : ['', ''];
+
+    // Basic date parsing attempt
+    let tanggal_lahir = null;
+    if (tglLahirStr) {
+      const parts = tglLahirStr.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+      if (parts) {
+        tanggal_lahir = `${parts[3]}-${parts[2]}-${parts[1]}`;
+      }
     }
 
     try {
@@ -127,7 +149,7 @@ const Sliks: React.FC<SliksProps> = ({ isDarkMode, setActiveView }) => {
         nik: ktpData.nik,
         nama_lengkap: ktpData.nama,
         tempat_lahir,
-        tanggal_lahir,
+        tanggal_lahir: tanggal_lahir || undefined,
         jenis_kelamin: ktpData.jenis_kelamin,
         alamat: ktpData.alamat,
         rt_rw: ktpData.rt_rw,
@@ -140,7 +162,9 @@ const Sliks: React.FC<SliksProps> = ({ isDarkMode, setActiveView }) => {
         berlaku_hingga: ktpData.berlaku_hingga,
       });
       fetchHistory();
-      resetUpload();
+      setStep('summary');
+      setImage(null);
+      setKtpData(null);
     } catch (err) {
       setError("Gagal menyimpan data ke database.");
     }
@@ -152,12 +176,18 @@ const Sliks: React.FC<SliksProps> = ({ isDarkMode, setActiveView }) => {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // Other helper functions: updateKtpField, getCleanJson, handleCopyJson etc.
+  const handleCopyJson = () => {
+    if (ktpData) {
+      navigator.clipboard.writeText(JSON.stringify(ktpData, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   return (
     <div className={`flex flex-col h-full transition-colors duration-300 relative ${isDarkMode ? 'bg-[#0f172a]' : 'bg-gray-50'}`}>
       <div className={`px-6 py-4 flex justify-between items-center transition-colors ${isDarkMode ? 'bg-[#1e293b]' : 'bg-white border-b border-gray-100'}`}>
-        <button onClick={() => step === 'summary' ? setActiveView('home') : setStep('summary')} className={`p-2 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/10 text-gray-200' : 'hover:bg-gray-100 text-[#004691]'}`}><ChevronLeft size={24} /></button>
+        <button onClick={() => step === 'summary' ? setActiveView('home') : resetUpload()} className={`p-2 rounded-full transition-colors ${isDarkMode ? 'hover:bg-white/10 text-gray-200' : 'hover:bg-gray-100 text-[#004691]'}`}><ChevronLeft size={24} /></button>
         <h2 className={`text-lg font-bold ${isDarkMode ? 'text-gray-100' : 'text-[#004691]'}`}>{step === 'summary' ? 'Layanan SLIK' : step === 'processing' ? 'Smart Scanner' : 'Review Identitas'}</h2>
         <div className="w-10"></div>
       </div>
@@ -192,12 +222,84 @@ const Sliks: React.FC<SliksProps> = ({ isDarkMode, setActiveView }) => {
           </div>
         )}
 
-        {step === 'processing' && <div className="..."><RotateCw /></div> /* Processing UI */}
-        {step === 'review' && ktpData && croppedImage && <div className="... animate-in slide-in-from-bottom-4 duration-500">{/* Review Form UI */}</div>}
+        {step === 'processing' && (
+          <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-6 animate-in fade-in duration-500">
+            <div className="relative">
+              <div className="w-24 h-24 rounded-full border-4 border-blue-100 border-t-blue-500 animate-spin"></div>
+              <div className="absolute inset-0 flex items-center justify-center"><RotateCw size={32} className="text-blue-500 animate-pulse" /></div>
+            </div>
+            <div className="space-y-2">
+              <h3 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>Sedang Menganalisis...</h3>
+              <p className="text-sm text-gray-400 max-w-xs mx-auto">AI kami sedang membaca data KTP Anda. Mohon tunggu sebentar.</p>
+            </div>
+          </div>
+        )}
+
+        {step === 'review' && ktpData && croppedImage && (
+          <div className="space-y-6 animate-in slide-in-from-bottom-8 duration-500">
+            <div className="aspect-video w-full rounded-2xl overflow-hidden shadow-lg border-2 border-white/20 relative group">
+              <img src={croppedImage} alt="KTP Cropped" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors"></div>
+            </div>
+
+            <div className={`p-6 rounded-3xl space-y-4 border ${isDarkMode ? 'bg-[#1e293b] border-[#334155]' : 'bg-white border-gray-100 shadow-md'}`}>
+              <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-white/5">
+                <h3 className={`font-bold ${isDarkMode ? 'text-gray-100' : 'text-[#004691]'}`}>Hasil Ekstraksi</h3>
+                <button onClick={() => setShowJsonResult(!showJsonResult)} className="p-2 rounded-lg bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 transition-colors"><Scissors size={16} className={isDarkMode ? 'text-gray-300' : 'text-gray-600'} /></button>
+              </div>
+
+              {showJsonResult ? (
+                <div className="relative group">
+                  <pre className={`text-[10px] p-4 rounded-xl overflow-x-auto font-mono leading-relaxed ${isDarkMode ? 'bg-[#0f172a] text-green-400' : 'bg-gray-900 text-green-400'}`}>
+                    {JSON.stringify(ktpData, null, 2)}
+                  </pre>
+                  <button onClick={handleCopyJson} className="absolute top-2 right-2 p-2 rounded-md bg-white/10 hover:bg-white/20 text-white transition-colors">
+                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4">
+                    <SlikField label="NIK" value={ktpData.nik} isDarkMode={isDarkMode} />
+                    <SlikField label="Nama Lengkap" value={ktpData.nama} isDarkMode={isDarkMode} />
+                    <div className="grid grid-cols-2 gap-4">
+                      <SlikField label="Tempat/Tgl Lahir" value={ktpData.tempat_tgl_lahir} isDarkMode={isDarkMode} />
+                      <SlikField label="Jenis Kelamin" value={ktpData.jenis_kelamin} isDarkMode={isDarkMode} />
+                    </div>
+                    <SlikField label="Alamat" value={`${ktpData.alamat}, ${ktpData.rt_rw}, ${ktpData.kel_desa}, ${ktpData.kecamatan}`} multiline isDarkMode={isDarkMode} />
+                    <div className="grid grid-cols-2 gap-4">
+                      <SlikField label="Agama" value={ktpData.agama} isDarkMode={isDarkMode} />
+                      <SlikField label="Status Perkawinan" value={ktpData.status_perkawinan} isDarkMode={isDarkMode} />
+                    </div>
+                    <SlikField label="Pekerjaan" value={ktpData.pekerjaan} isDarkMode={isDarkMode} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="sticky bottom-6 pt-4 bg-gradient-to-t from-[#0f172a] to-transparent">
+              <button onClick={finalizeVerification} className="w-full py-4 rounded-2xl bg-[#004691] hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-900/20 active:scale-95 transition-all flex items-center justify-center gap-2">
+                <CheckCircle2 size={20} />
+                Simpan & Verifikasi
+              </button>
+              <button onClick={resetUpload} className="w-full mt-3 py-3 rounded-2xl bg-transparent hover:bg-white/5 text-gray-500 font-bold transition-all">
+                Ulangi Scan
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 };
+
+// Helper Components
+const SlikField: React.FC<{ label: string; value: string; isDarkMode: boolean; multiline?: boolean }> = ({ label, value, isDarkMode, multiline }) => (
+  <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-[#0f172a] border-[#334155]' : 'bg-gray-50 border-gray-100'}`}>
+    <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider mb-1">{label}</p>
+    <p className={`font-semibold text-sm ${multiline ? 'break-words' : 'truncate'} ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{value || '-'}</p>
+  </div>
+);
 
 const SlikLogItem: React.FC<{ log: SliksKtp; isDarkMode: boolean; }> = ({ log, isDarkMode }) => {
   const date = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(log.created_at));

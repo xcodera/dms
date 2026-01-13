@@ -40,12 +40,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     fetchSession();
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
+        // Only set loading for major events where user might change
+        const shouldLoad = event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'PASSWORD_RECOVERY';
+
+        if (shouldLoad && session?.user) {
+          setLoading(true); // Show spinner while fetching profile
+        }
+
         setSession(session);
         setUser(session?.user ?? null);
+
         if (session?.user) {
-          setLoading(true);
           try {
+            // Only fetch profile if strict condition met or if we don't have it yet
+            // But to be safe and ensure data sync, we fetch it on sign-in
             const profileData = await getProfile(session.user.id);
             setProfile(profileData);
           } catch (error) {
@@ -55,6 +64,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         } else {
           setProfile(null);
+          setLoading(false);
         }
       }
     );
