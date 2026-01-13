@@ -1,0 +1,8 @@
+{
+  "name": "XCODERA",
+  "description": "A high-fidelity mobile UI/UX inspired by myBCA, featuring account management, transactions, and an integrated Gemini AI Financial Assistant for smart insights.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
