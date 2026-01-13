@@ -36,14 +36,14 @@ const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label htmlFor="email" className="text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
-            <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-2 mt-1 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 dark:bg-[#0f172a] dark:border-[#334155]" />
+            <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-2 mt-1 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 dark:bg-[#0f172a] dark:border-[#334155] dark:text-gray-100" />
           </div>
           <div>
             <label htmlFor="password" className="text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
-            <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-4 py-2 mt-1 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 dark:bg-[#0f172a] dark:border-[#334155]" />
+            <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-4 py-2 mt-1 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 dark:bg-[#0f172a] dark:border-[#334155] dark:text-gray-100" />
           </div>
           <button type="submit" disabled={loading} className="w-full py-2.5 font-semibold text-white bg-[#004691] rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center">
-            {loading ? <Spinner size="sm" color="border-white"/> : 'Login'}
+            {loading ? <Spinner size="sm" color="border-white" /> : 'Login'}
           </button>
         </form>
         <p className="text-sm text-center text-gray-600 dark:text-gray-400">

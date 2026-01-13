@@ -67,7 +67,7 @@ const Attendance: React.FC<AttendanceProps> = ({ isDarkMode, setActiveView }) =>
   }, [user]);
 
   useEffect(() => {
-    // Geolocation logic
+    // Geolocation logic (Matches Dashboard)
     if (!navigator.geolocation) {
       setLocationName("GPS tidak didukung");
       return;
@@ -78,16 +78,22 @@ const Attendance: React.FC<AttendanceProps> = ({ isDarkMode, setActiveView }) =>
         const { latitude, longitude } = position.coords;
         setCoords({ lat: latitude, lng: longitude });
         try {
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`, { headers: { 'Accept-Language': 'id' } });
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=id`);
           const data = await response.json();
-          setLocationName(data.display_name.split(',').slice(0, 3).join(',') || "Lokasi tidak dikenal");
+          const address = data.address;
+          const location = `${address.suburb || address.village || address.town || ''}, ${address.state || ''}`;
+          setLocationName(location.startsWith(',') ? location.substring(2) : location || data.display_name.split(',').slice(0, 2).join(', '));
         } catch (error) {
+          console.error("Error fetching location name", error);
           setLocationName(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
         } finally {
           setIsFetchingLocation(false);
         }
       },
-      () => setLocationName("Izin lokasi ditolak"),
+      () => {
+        setLocationName("Izin lokasi ditolak");
+        setIsFetchingLocation(false);
+      },
       { enableHighAccuracy: true }
     );
   }, []);
@@ -264,17 +270,43 @@ const Attendance: React.FC<AttendanceProps> = ({ isDarkMode, setActiveView }) =>
 };
 
 const LeaveMenuButton: React.FC<{ isDarkMode: boolean; icon: React.ReactNode; label: string; onClick: () => void }> = ({ isDarkMode, icon, label, onClick }) => (
-  <button onClick={onClick} className={`flex flex-col items-center justify-center gap-2 p-5 rounded-3xl border transition-all active:scale-90 shadow-sm ${isDarkMode ? 'bg-[#1e293b] border-[#334155]' : 'bg-white border-gray-100'}`}>
-    {/* ... */}
+  <button onClick={onClick} className={`flex flex-col items-center justify-center gap-2 p-5 rounded-3xl border transition-all active:scale-90 shadow-sm ${isDarkMode ? 'bg-[#1e293b] border-[#334155] hover:bg-[#334155]' : 'bg-white border-gray-100 hover:shadow-md'}`}>
+    <div className={`p-3 rounded-full ${isDarkMode ? 'bg-white/5' : 'bg-gray-50'}`}>
+      {icon}
+    </div>
+    <span className={`text-xs font-bold ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{label}</span>
   </button>
 );
 
 const AttendanceLogItem: React.FC<{ log: AttendanceType, isDarkMode: boolean }> = ({ log, isDarkMode }) => {
   const time = log.clock_in ? new Date(log.clock_in).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : 'N/A';
   const date = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(log.date));
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Hadir': return 'text-green-500 bg-green-500/10';
+      case 'Terlambat': return 'text-red-500 bg-red-500/10';
+      case 'Sakit': case 'Izin - Full Day': case 'Izin - Half Day': return 'text-orange-500 bg-orange-500/10';
+      case 'Cuti': return 'text-purple-500 bg-purple-500/10';
+      default: return 'text-gray-400 bg-gray-400/10';
+    }
+  };
+
   return (
-    <div className="p-4 flex justify-between items-center">
-      {/* ... Log Item UI ... */}
+    <div className={`p-4 flex justify-between items-center ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-gray-50'} transition-colors`}>
+      <div className="flex items-center gap-4">
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs ${isDarkMode ? 'bg-[#0f172a] text-gray-400' : 'bg-gray-100 text-gray-500'}`}>
+          {log.clock_in ? <CheckCircle2 size={18} className="text-green-500" /> : <X size={18} className="text-red-500" />}
+        </div>
+        <div>
+          <h4 className={`text-sm font-bold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{log.status}</h4>
+          <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mt-0.5">{date}</p>
+        </div>
+      </div>
+      <div className="text-right">
+        <p className={`text-sm font-black ${isDarkMode ? 'text-white' : 'text-[#004691]'}`}>{time}</p>
+        {log.clock_out && <p className="text-[10px] text-gray-400 font-mono">OUT: {new Date(log.clock_out).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</p>}
+      </div>
     </div>
   );
 };
