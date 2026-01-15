@@ -11,6 +11,7 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -27,22 +28,38 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) => {
         options: {
           data: {
             full_name: fullName,
+            username: username, // Save in metadata as well
             avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=random`,
           },
         },
       });
       if (error) throw error;
       if (data.user) {
-        // Manually update profile with email to allow "Login by Username" lookup later
-        // Note: This relies on the table having an 'email' column or JSONB. 
-        // We will try to update it, ignoring errors if column doesn't exist yet (soft fail).
+        // Manually ensure profile exists with email and alias (username)
         try {
-          await supabase.from('profiles').update({
+          // Use UPSERT to ensure row exists even if trigger didn't fire yet
+          await supabase.from('profiles').upsert({
+            id: data.user.id,
             // @ts-ignore: email column might not exist in types yet
+            email: email,
+            alias: username,
+            full_name: fullName,
+            updated_at: new Date().toISOString(),
+          });
+
+          // FORCE UPDATE ALIAS (Double Check)
+          // Terkadang upsert gagal mengubah row yang sudah ada jika ada conflict policy aneh.
+          await supabase.from('profiles').update({
+            alias: username,
             email: email
           }).eq('id', data.user.id);
-        } catch (err) {
-          console.warn("Could not save email to profile (column might be missing)", err);
+
+          console.log("DEBUG: Profile upsert/update success for:", username);
+        } catch (err: any) {
+          console.error("DEBUG: Profile upsert failed:", err);
+          setError("Registrasi User berhasil, TAPI gagal menyimpan Username/Profile: " + (err.message || JSON.stringify(err)));
+          setLoading(false);
+          return; // Stop here, don't show success message
         }
 
         setSuccess('Registrasi berhasil! Silakan periksa email Anda untuk verifikasi akun.');
@@ -64,6 +81,10 @@ const RegisterPage: React.FC<RegisterPageProps> = ({ onSwitchToLogin }) => {
           <div>
             <label htmlFor="fullName" className="text-sm font-medium text-gray-700 dark:text-gray-300">Nama Lengkap</label>
             <input id="fullName" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} required className="w-full px-4 py-2 mt-1 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 dark:bg-[#0f172a] dark:border-[#334155] dark:text-gray-100" />
+          </div>
+          <div>
+            <label htmlFor="username" className="text-sm font-medium text-gray-700 dark:text-gray-300">Username</label>
+            <input id="username" type="text" value={username} onChange={(e) => setUsername(e.target.value)} required className="w-full px-4 py-2 mt-1 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 dark:bg-[#0f172a] dark:border-[#334155] dark:text-gray-100" placeholder="contoh: user.name" />
           </div>
           <div>
             <label htmlFor="email" className="text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>

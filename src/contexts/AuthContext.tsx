@@ -23,21 +23,53 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const fetchSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        try {
-          const profileData = await getProfile(session.user.id);
-          setProfile(profileData);
-        } catch (error) {
-          console.error("Error fetching initial profile:", error);
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error("Error retrieving session:", error);
+          await supabase.auth.signOut(); // Clear invalid token
+          setSession(null);
+          setUser(null);
+          return;
         }
+
+        setSession(session);
+        setUser(session?.user ?? null);
+
+        if (session?.user) {
+          try {
+            // Add timeout for profile fetch
+            const profilePromise = getProfile(session.user.id);
+            const timeoutPromise = new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
+            );
+
+            const profileData = await Promise.race([profilePromise, timeoutPromise]);
+            setProfile(profileData as Profile);
+          } catch (error) {
+            console.error("Error fetching initial profile:", error);
+          }
+        }
+      } catch (err) {
+        console.error("Unexpected error during session fetch:", err);
+        await supabase.auth.signOut();
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
-    fetchSession();
+    // Failsafe: Force loading to false after 5 seconds to prevent infinite spinner
+    const timer = setTimeout(() => {
+      setLoading((prev) => {
+        if (prev) {
+          console.warn("Session fetch timed out. Forcing app load.");
+          return false;
+        }
+        return prev;
+      });
+    }, 5000);
+
+    fetchSession().then(() => clearTimeout(timer));
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
@@ -55,8 +87,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           try {
             // Only fetch profile if strict condition met or if we don't have it yet
             // But to be safe and ensure data sync, we fetch it on sign-in
-            const profileData = await getProfile(session.user.id);
-            setProfile(profileData);
+            const profilePromise = getProfile(session.user.id);
+            const timeoutPromise = new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
+            );
+
+            const profileData = await Promise.race([profilePromise, timeoutPromise]);
+            setProfile(profileData as Profile);
           } catch (error) {
             console.error("Error fetching profile on auth change:", error);
           } finally {
